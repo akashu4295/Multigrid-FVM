@@ -98,6 +98,7 @@ void prolsc(struct SoA *igSoA, struct SoA *igSoA1);
 void write_tecplot_2d_cc(const char *fname, const struct SoA *s, int iter,
                          double xl, double yl);
 void write_vtk_2d_cc(const char *fname, const struct SoA *s, int iter);
+void write_vtk_2d_cc_square(const char *fname, const struct SoA *s, int iter);
 void write_convergence_data_file(const char *fname, double* convergence_data);
 void read_obstacle_data(const char *filename);
 
@@ -258,8 +259,12 @@ int main(void)
     char fname1[128];
     snprintf(fname1, sizeof(fname1), "vtk_acc.vtk");
     
+    char fname2[128];
+    snprintf(fname2, sizeof(fname2), "vtk_acc_square.vtk");
+
     if (convergence_data[icyc]<convergence){
 	write_vtk_2d_cc(fname1, igSoA, 0); 
+    write_vtk_2d_cc_square(fname2, igSoA, 0);
 	write_convergence_data_file("convergence.csv", convergence_data);
     }
     
@@ -2079,11 +2084,6 @@ void write_tecplot_2d_cc(const char *fname, const struct SoA *s, int iter,
     fclose(fp);
 }
 
-/* -------------------- paraiew writer (host) -------------------- */
-#include <stdio.h>
-#include <stdlib.h>
-#include <math.h>
-
 void write_vtk_2d_cc(const char *fname, const struct SoA *s, int iter)
 {
     // 1. Determine active simulation grid size
@@ -2226,6 +2226,145 @@ void write_vtk_2d_cc(const char *fname, const struct SoA *s, int iter)
         printf("Tortuosity at iter %d: %e\n", iter, sum_mag / sum_vx);
     }
 }
+
+void write_vtk_2d_cc_square(const char *fname, const struct SoA *s, int iter)
+{
+    // 1. Determine active simulation grid size
+    int nx = s->npx;
+    int ny = s->npy;
+    int I = nx - 2; // Active interior cells along X
+    int J = ny - 2; // Active interior cells along Y
+
+    // Define square target grid dimensions (using TARGET_J for a square aspect ratio)
+    const int TARGET_SZ = 640; 
+    const int TARGET_N = TARGET_SZ * TARGET_SZ;
+
+    // Define X-range sub-domain from ny to 2*ny
+    int x_start = ny;
+    int x_end = 2 * ny;
+    int x_span = x_end - x_start;
+
+    // Determine spatial scaling ratio for the square sub-domain
+    double stride_x = (double)x_span / (double)TARGET_SZ;
+    double stride_y = (double)J / (double)TARGET_SZ;
+
+    double target_dx = s->dx * stride_x;
+    double target_dy = s->dy * stride_y;
+
+    double sum_vx = 0.0, sum_mag = 0.0;
+
+    FILE *fp = fopen(fname, "w");
+    if (!fp) {
+        perror("fopen");
+        return;
+    }
+
+    // 2. VTK Header setup for square grid
+    fprintf(fp, "# vtk DataFile Version 3.0\n");
+    fprintf(fp, "2D SQUARE output iter %d\n", iter);
+    fprintf(fp, "ASCII\n");
+    fprintf(fp, "DATASET STRUCTURED_GRID\n");
+    fprintf(fp, "DIMENSIONS %d %d 1\n", TARGET_SZ, TARGET_SZ);
+    fprintf(fp, "POINTS %d float\n", TARGET_N);
+
+    // Write Coordinates for square grid
+    for (int tj = 1; tj <= TARGET_SZ; ++tj) {
+        for (int ti = 1; ti <= TARGET_SZ; ++ti) {
+            double x = (ti - 0.5) * target_dx;
+            double y = (tj - 0.5) * target_dy;
+            fprintf(fp, "%f %f 0.0\n", x, y);
+        }
+    }
+
+    fprintf(fp, "\nPOINT_DATA %d\n", TARGET_N);
+
+    // 3. Velocity Vectors (Mapped to square target grid with X offset from ny to 2*ny)
+    fprintf(fp, "VECTORS Velocity float\n");
+    for (int tj = 1; tj <= TARGET_SZ; ++tj) {
+        int j = 1 + (int)((tj - 0.5) * stride_y);
+        if (j > J) j = J;
+
+        for (int ti = 1; ti <= TARGET_SZ; ++ti) {
+            int i = x_start + (int)((ti - 0.5) * stride_x);
+            if (i > I) i = I;
+
+            int ij    = j * nx + i;
+            int ijm_x = ij - 1;
+            int ijm_y = ij - nx;
+
+            double ucc = 0.5 * (s->u[ij] + s->u[ijm_x]);
+            double vcc = 0.5 * (s->v[ij] + s->v[ijm_y]);
+
+            sum_vx += ucc;
+            sum_mag += sqrt(ucc * ucc + vcc * vcc);
+
+            fprintf(fp, "%f %f 0.0\n", ucc, vcc);
+        }
+    }
+
+    // 4. Pressure
+    fprintf(fp, "\nSCALARS P float 1\n");
+    fprintf(fp, "LOOKUP_TABLE default\n");
+    for (int tj = 1; tj <= TARGET_SZ; ++tj) {
+        int j = 1 + (int)((tj - 0.5) * stride_y);
+        if (j > J) j = J;
+
+        for (int ti = 1; ti <= TARGET_SZ; ++ti) {
+            int i = x_start + (int)((ti - 0.5) * stride_x);
+            if (i > I) i = I;
+
+            int ij = j * nx + i;
+            fprintf(fp, "%f\n", s->p[ij]);
+        }
+    }
+
+    // 5. Scalar
+    fprintf(fp, "\nSCALARS SC float 1\n");
+    fprintf(fp, "LOOKUP_TABLE default\n");
+    for (int tj = 1; tj <= TARGET_SZ; ++tj) {
+        int j = 1 + (int)((tj - 0.5) * stride_y);
+        if (j > J) j = J;
+
+        for (int ti = 1; ti <= TARGET_SZ; ++ti) {
+            int i = x_start + (int)((ti - 0.5) * stride_x);
+            if (i > I) i = I;
+
+            int ij = j * nx + i;
+            fprintf(fp, "%f\n", s->sc[ij]);
+        }
+    }
+
+    // 6. Obstacle Scalar
+    fprintf(fp, "\nSCALARS OBS float 1\n");
+    fprintf(fp, "LOOKUP_TABLE default\n");
+    for (int tj = 1; tj <= TARGET_SZ; ++tj) {
+        int j = 1 + (int)((tj - 0.5) * stride_y);
+        if (j > J) j = J;
+
+        for (int ti = 1; ti <= TARGET_SZ; ++ti) {
+            int i = x_start + (int)((ti - 0.5) * stride_x);
+            if (i > I) i = I;
+
+            int flag = 0;
+            if (nobs > 0) {
+                for (int iobs = 0; iobs < nobs; ++iobs) {
+                    if (i >= s->isobs[iobs] && i <= s->ieobs[iobs] &&
+                        j >= s->jsobs[iobs] && j <= s->jeobs[iobs]) {
+                        flag = 1;
+                        break;
+                    }
+                }
+            }
+            fprintf(fp, "%f\n", flag ? 1.0 : 0.0);
+        }
+    }
+
+    fclose(fp);
+
+    printf("Square domain - Average velocity magnitude at iter %d: %e\n", iter, sum_mag / TARGET_N);
+    printf("Square domain - Average x-velocity at iter %d: %e\n", iter, sum_vx / TARGET_N);
+}
+
 
 /*
 void write_vtk_2d_cc(const char *fname, const struct SoA *s, int iter)
