@@ -21,7 +21,8 @@ InputData file has the following format:
 ### Tenth line (and k more)
 &noutlt\
 &jfoutlt[k], &jloutlt[k],&uoutlt[k], &voutlt[k], &scoutlt[k]
-\
+
+### Dictionary of variables
 nfx      : number of cells in x\
 nfy      : number of cells in y\
 ngrid    : number of grids for multigriding\
