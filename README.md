@@ -1,26 +1,26 @@
 # Multigrid-FVM
 
 ## InputData file
-InputData file has the following format:\
+InputData file has the following format:
 ### First line:
-&nfx, &nfy, &ngrid, &ig_obs, &ibeg_obs, &ig_inlt, &ig_outlt, &nvcycle, &nswpm, &nswpp, &isolve, &omega, &convergence\
+&nfx, &nfy, &ngrid, &ig_obs, &ibeg_obs, &ig_inlt, &ig_outlt, &nvcycle, &nswpm, &nswpp, &isolve, &omega, &convergence
 ### Second line:
-&xl, &yl, &amuf, &prsc, &relxm, &relxp\
+&xl, &yl, &amuf, &prsc, &relxm, &relxp
 ### Third line:
-&ibc_xm, &ibc_xp, &ibc_ym, &ibc_yp\
+&ibc_xm, &ibc_xp, &ibc_ym, &ibc_yp
 ### Fourth through to seventh line:
 &u_xm, &v_xm, &p_xm, &sc_xm\
 &u_xp, &v_xp, &p_xp, &sc_xp\
 &u_ym, &v_ym, &p_ym, &sc_ym\
-&u_yp, &v_yp, &p_yp, &sc_yp\
+&u_yp, &v_yp, &p_yp, &sc_yp
 ### Eighth line:
-&u_guess, &v_guess, &p_guess, &sc_guess\
+&u_guess, &v_guess, &p_guess, &sc_guess
 ### Ninth line (and k more)
 &ninlt\
-&jfinlt[k], &jlinlt[k],&uinlt[k], &vinlt[k], &scinlt[k]\
+&jfinlt[k], &jlinlt[k],&uinlt[k], &vinlt[k], &scinlt[k]
 ### Tenth line (and k more)
 &noutlt\
-&jfoutlt[k], &jloutlt[k],&uoutlt[k], &voutlt[k], &scoutlt[k]\
+&jfoutlt[k], &jloutlt[k],&uoutlt[k], &voutlt[k], &scoutlt[k]
 \
 nfx      : number of cells in x\
 nfy      : number of cells in y\
@@ -57,4 +57,4 @@ ninlt    : number of inlets\
 jfinlt[k], jlinlt[k], uinlt[k], vinlt[k], scinlt[k] : y location begining, y location ending, u, v, scalar value at the inlet\
 \
 noutlt   : number of outlets\
-jfoutlt[k], jloutlt[k], uoutlt[k], voutlt[k], scoutlt[k] : y location begining, y location ending, u, v, scalar value at the outlet\
+jfoutlt[k], jloutlt[k], uoutlt[k], voutlt[k], scoutlt[k] : y location begining, y location ending, u, v, scalar value at the outlet
