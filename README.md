@@ -1,5 +1,8 @@
 # Multigrid-FVM
 
+## Version-6-26-04.c
+This is the main FVM code for the structured grid. It needs "InputData" file to work correctly. If an obstacle grid is placed, it would also need the "patern.txt" file.
+
 ## InputData file
 InputData file has the following format:
 ### First line:
@@ -59,3 +62,13 @@ jfinlt[k], jlinlt[k], uinlt[k], vinlt[k], scinlt[k] : y location begining, y loc
 \
 noutlt   : number of outlets\
 jfoutlt[k], jloutlt[k], uoutlt[k], voutlt[k], scoutlt[k] : y location begining, y location ending, u, v, scalar value at the outlet
+
+
+## run_patterns_ans_save_vtk.sh
+This is to batch process all the obstacle grid present within the folder named "patterns". Solution vtk and convergence files will be saved in a folder named solution. The script is written to rewrite the "InputData" file for a given set of Reynolds numbers. Add all the required Reynolds numbers in the list within the script. Also change the "base_n" variable if the obstacle grid is defined on any other grid default being 16x16.
+
+## create_patterns_staggered.c
+This code can be used to create any number of obstacle patterns for a given grid NxN (input to the code), starting from a staggered grid spaced in x and y (input to the code), each obstacle randomly moved by a quarter, half or a full pixel (input to the code) to the right, left, top or bottom. The code creates two patterns always, an inline arrangement and a staggered arrangement followed by randomly moved obstacle grids.
+
+## create_patterns_random.c
+This code works in a similar fashion, but the obstacles are not moved from a given staggered grid, but completely randomly placed for a given grid and given porosity.
