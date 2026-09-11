@@ -77,10 +77,4 @@ for reynolds in "${reynolds_numbers[@]}"; do
     done
 done
 
-echo "--------------------------------------------"
-echo "All loops completed. Running post-processing..."
-echo "Removing files that haven't converged...."
-
-python remove_files.py
-
 echo "All processing completed successfully."
