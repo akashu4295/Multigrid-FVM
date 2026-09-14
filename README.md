@@ -18,6 +18,8 @@ InputData file has the following format:
 &u_yp, &v_yp, &p_yp, &sc_yp
 ### Eighth line:
 &u_guess, &v_guess, &p_guess, &sc_guess
+### Ninth line:
+&sc_obs
 ### Ninth line (and k more)
 &ninlt\
 &jfinlt[k], &jlinlt[k],&uinlt[k], &vinlt[k], &scinlt[k]
@@ -56,6 +58,8 @@ u_ym, v_ym, p_ym, sc_ym : u, v, p and scalar values at the bottom boundary\
 u_yp, v_yp, p_yp, sc_yp : u, v, p and scalar values at the top boundary\
 \
 u_guess, v_guess, p_guess, sc_guess : u, v, p and scalar guess values for the domain (initial condition)\
+\
+sc_obs   : Scalar value for the obstacles\
 \
 ninlt    : number of inlets\
 jfinlt[k], jlinlt[k], uinlt[k], vinlt[k], scinlt[k] : y location begining, y location ending, u, v, scalar value at the inlet\
