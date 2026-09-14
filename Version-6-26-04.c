@@ -2113,11 +2113,7 @@ void write_tecplot_2d_cc(const char *fname, const struct SoA *s, int iter,
     fclose(fp);
 }
 
-/* -------------------- paraiew writer (host) -------------------- */
-#include <stdio.h>
-#include <stdlib.h>
-#include <math.h>
-
+/*
 void write_vtk_2d_cc(const char *fname, const struct SoA *s, int iter)
 {
     // 1. Determine active simulation grid size
@@ -2261,7 +2257,7 @@ void write_vtk_2d_cc(const char *fname, const struct SoA *s, int iter)
     }
 }
 
-/*
+*/
 void write_vtk_2d_cc(const char *fname, const struct SoA *s, int iter)
 {
     int nx = s->npx;
@@ -2365,7 +2361,7 @@ void write_vtk_2d_cc(const char *fname, const struct SoA *s, int iter)
     printf("Average x-velocity at iter %d: %e\n", iter, sum_vx / N);
     printf("Tortuosity at iter %d: %e\n", iter, (sum_mag) / (sum_vx));
 }
-*/
+
 
 /////////////////// Read obstacle from file
 void read_obstacle_data(const char *filename) {
