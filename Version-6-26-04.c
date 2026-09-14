@@ -33,6 +33,7 @@ double error = 0.0, convergence = 0.00001;
 double xl, yl, amuf, prsc, relxm, relxp, omega,dpdxm, dpdym;
 double u_xm, v_xm, p_xm, sc_xm, u_xp, v_xp, p_xp, sc_xp;
 double u_ym, v_ym, p_ym, sc_ym, u_yp, v_yp, p_yp, sc_yp;
+double sc_obs;
 double u_guess, v_guess, p_guess, sc_guess;
 double uinlt[10], vinlt [10], scinlt[10], uoutlt[10], voutlt[10], scoutlt[10];
 double convergence_data[3000];
@@ -44,10 +45,9 @@ struct SoA {
     int *jsinlt, *jeinlt, *jsoutlt, *jeoutlt;
     double dx, dy,amu;
     double *areax, *areay;
-
     double *ae, *aw, *an, *as, *ap;
     double *u, *v, *p, *pp, *sc, *su, *rs;
-    double *apu, *apv, *spu, *spv;
+    double *apu, *apv, *spu, *spv, *spsc;
     double *resu, *resv, *ressc;
     double *c;
     double *cx, *cy;
@@ -79,6 +79,7 @@ void coefp(struct SoA *igSoA);
 double masserror(struct SoA *igSoA);
 void update(struct SoA *igSoA);
 void pbound(struct SoA *igSoA);
+void outflow(struct SoA *igSoA);
 void coefsc(struct SoA *igSoA);
 void scalar(struct SoA *igSoA);
 
@@ -98,7 +99,6 @@ void prolsc(struct SoA *igSoA, struct SoA *igSoA1);
 void write_tecplot_2d_cc(const char *fname, const struct SoA *s, int iter,
                          double xl, double yl);
 void write_vtk_2d_cc(const char *fname, const struct SoA *s, int iter);
-void write_vtk_2d_cc_square(const char *fname, const struct SoA *s, int iter);
 void write_convergence_data_file(const char *fname, double* convergence_data);
 void read_obstacle_data(const char *filename);
 
@@ -132,6 +132,7 @@ void EnterDataSoA(struct SoA *mySoA)
             mySoA[ig].ap[0:nxy], \
             mySoA[ig].apu[0:nxy], mySoA[ig].apv[0:nxy], \
 	   mySoA[ig].spu[0:nxy], mySoA[ig].spv[0:nxy], \
+	   mySoA[ig].spsc[0:nxy], \
             mySoA[ig].cx[0:nxy], mySoA[ig].cy[0:nxy], \
 	   mySoA[ig].areax[0:nxy], mySoA[ig].areay[0:nxy], \
             mySoA[ig].isobs[0:nobs], mySoA[ig].ieobs[0:nobs],\
@@ -156,6 +157,7 @@ void ExitDataSoA(struct SoA *mySoA)
             mySoA[ig].ap[0:nxy], \
             mySoA[ig].apu[0:nxy], mySoA[ig].apv[0:nxy], \
 	   mySoA[ig].spu[0:nxy], mySoA[ig].spv[0:nxy], \
+	   mySoA[ig].spsc[0:nxy], \
             mySoA[ig].cx[0:nxy], mySoA[ig].cy[0:nxy], \
 	   mySoA[ig].areax[0:nxy], mySoA[ig].areay[0:nxy], \
             mySoA[ig].isobs[0:nobs], mySoA[ig].ieobs[0:nobs],\
@@ -195,14 +197,14 @@ int main(void)
         for (int ig = 0; ig < ngrid; ++ig) {
 
             struct SoA *igSoA = &mySoA[ig];
- //         for (int iter = 0; iter < 3; ++iter) {
+
             fluxes(igSoA);
             solve_u(igSoA);
             solve_v(igSoA);
             solve_pprime(igSoA, icyc, ig);
             pbound(igSoA);
+            outflow(igSoA);
             solve_sc(igSoA);
-//           }
  
             /* restriction */
 
@@ -231,15 +233,16 @@ int main(void)
             prolsc(igSoA, igSoA1);
 
             if (ig != 1) {
- //           for (int iter = 0; iter < 3; ++iter) {
+
                 fluxes(igSoA);
                 solve_u(igSoA);
                 solve_v(igSoA);
                 solve_pprime(igSoA, icyc, ig);
                 pbound(igSoA);
                 solve_sc(igSoA);
+                outflow(igSoA);
             }
-//            }                                                  
+                                             
         }
         nvcycle_converged = icyc; 
         if (convergence_data[icyc]<convergence) {break;}       
@@ -259,12 +262,8 @@ int main(void)
     char fname1[128];
     snprintf(fname1, sizeof(fname1), "vtk_acc.vtk");
     
-    char fname2[128];
-    snprintf(fname2, sizeof(fname2), "vtk_acc_square.vtk");
-
     if (convergence_data[icyc]<convergence){
 	write_vtk_2d_cc(fname1, igSoA, 0); 
-    write_vtk_2d_cc_square(fname2, igSoA, 0);
 	write_convergence_data_file("convergence.csv", convergence_data);
     }
     
@@ -357,11 +356,11 @@ void readInput(void)
   
     read_obstacle_data("pattern.txt");
     
-/*    if (fscanf(fptr, "%d", &nobs) != 1) {
-        fprintf(stderr, "ERROR: failed reading obstacle line of inputData\n");
-        fclose(fptr);
+    if (fscanf(fptr, "%lf", &sc_obs) != 1) {
+        fprintf(stderr, "ERROR: failed reading obstacle temperature line of inputData\n");
         exit(EXIT_FAILURE);
-    }*/
+    }
+         printf("obs_sc %lf\n", sc_obs);   
   
      if (fscanf(fptr, "%d", &ninlt) != 1) {
         fprintf(stderr, "ERROR: failed reading inlet and outlet line of inputData\n");
@@ -445,6 +444,7 @@ struct SoA* AllocateMemorySoA(void)
         mySoA[ig].apv  = (double*)xmalloc((size_t)nxy * sizeof(double));
         mySoA[ig].spu  = (double*)xmalloc((size_t)nxy * sizeof(double));
         mySoA[ig].spv  = (double*)xmalloc((size_t)nxy * sizeof(double));
+        mySoA[ig].spsc = (double*)xmalloc((size_t)nxy * sizeof(double));
 
         mySoA[ig].cx   = (double*)xmalloc((size_t)nxy * sizeof(double));
         mySoA[ig].cy   = (double*)xmalloc((size_t)nxy * sizeof(double));
@@ -474,7 +474,6 @@ struct SoA* AllocateMemorySoA(void)
               mySoA[ig].ieobs[k] = (ilobs[k] + ibeg_obs) * fac ;
               mySoA[ig].jsobs[k] = (jfobs[k]-1)* fac + 1 ;
               mySoA[ig].jeobs[k] = jlobs[k]* fac ;
-              //printf(" isobs = %d, ieobs = %d\n",mySoA[ig].isobs[k], mySoA[ig].ieobs[k]);
 	}
       }
     }
@@ -570,6 +569,7 @@ void init(struct SoA *mySoA)
                     mySoA[ig].apv[ij]  = 1.0e30;
 	           mySoA[ig].spu[ij]  = 0.0;
                     mySoA[ig].spv[ij]  = 0.0;
+                    mySoA[ig].spsc[ij] = 0.0;
 		  mySoA[ig].areax[ij] = mySoA[ig].dy;
                     mySoA[ig].areay[ij] = mySoA[ig].dx;
                     mySoA[ig].cx[ij]   = 0.0;
@@ -625,16 +625,14 @@ void init(struct SoA *mySoA)
 		     mySoA[ig].u[ij] = 0.0; 
 		     mySoA[ig].v[ij] = 0.0;  
 		     mySoA[ig].u[ij-1] = 0.0; 
-		     mySoA[ig].v[ij-mySoA[ig].npx] = 0.0;  
-	        //      mySoA[ig].areax[ij] = 0.0; 
-		//     mySoA[ig].areay[ij] = 0.0;  
-		//     mySoA[ig].areax[ij-1] = 0.0; 
-		//     mySoA[ig].areay[ij-mySoA[ig].npx] = 0.0;  
+		     mySoA[ig].v[ij-mySoA[ig].npx] = 0.0; 
 		     mySoA[ig].spu[ij] = 1.0e30; 
 		     mySoA[ig].spv[ij] = 1.0e30;  
 		     mySoA[ig].spu[ij-1] = 1.0e30; 
 		     mySoA[ig].spv[ij-mySoA[ig].npx] = 1.0e30;
-		     mySoA[ig].tag[ij] = 0;				
+		     mySoA[ig].spsc[ij] = 1.0e30; 
+		     mySoA[ig].tag[ij] = 0;
+		     mySoA[ig].sc[ij] = sc_obs; 				
 
            }
           }
@@ -642,7 +640,7 @@ void init(struct SoA *mySoA)
       }
  }
  
-	/*  inlet velocities in inlet region */
+	/*  inlet velocities in discrete inlets */
    
    if (ninlt > 0) {
       for (int ig = 0; ig < ig_inlt; ++ig) {
@@ -657,9 +655,8 @@ void init(struct SoA *mySoA)
            }
         }
       }
-    }
-	
-	/*  outlet velocities in outlet region */
+    }	
+	/*  outlet velocities in discrete outlets */
 
     if (noutlt > 0) {
       for (int ig = 0; ig < ig_outlt; ++ig) {
@@ -718,6 +715,7 @@ void solve_v(struct SoA *igSoA) {
 void solve_pprime(struct SoA *igSoA, int icycle, int ig) {
 
     double err_level = masserror(igSoA);
+    
     coefp(igSoA);
 
     if (ig == 0) {
@@ -801,12 +799,13 @@ void scalar(struct SoA *igSoA)
 
     #pragma acc parallel loop collapse(2) present(igSoA[0:1], \
         igSoA->p[0:nxy], igSoA->su[0:nxy], igSoA->ap[0:nxy], \
-        igSoA->apu[0:nxy], igSoA->sc[0:nxy], igSoA->ressc[0:nxy])
+        igSoA->spsc[0:nxy], igSoA->sc[0:nxy], igSoA->ressc[0:nxy])
 		
         for (int j = 1; j < ny-1; ++j) {
             for (int i = 1; i < nx-1; ++i) {
                 int ij = j*nx + i;
-                igSoA->su[ij] = igSoA->ressc[ij];
+                igSoA->su[ij]  = igSoA->spsc[ij] * sc_obs + igSoA->ressc[ij];	
+                igSoA->ap[ij] = igSoA->ap[ij] + igSoA->spsc[ij];
 								
             }
         }
@@ -896,8 +895,8 @@ void coefsc(struct SoA *igSoA)
             }
         }
         
-    // x-boundary mods: i=1 and i=nx-2; zero flux boundary
-    #pragma acc parallel loop collapse(1) present(igSoA[0:1], igSoA->ae[0:nxy], igSoA->aw[0:nxy], igSoA->ap[0:nxy])
+    // x-boundary mods: i=1 and i=nx-1; zero flux boundary
+ /*   #pragma acc parallel loop collapse(1) present(igSoA[0:1], igSoA->ae[0:nxy], igSoA->aw[0:nxy], igSoA->ap[0:nxy])
  
         for (int j = 1; j < ny-1; ++j) {
             int ij  = j*nx + (nx-2);
@@ -923,7 +922,7 @@ void coefsc(struct SoA *igSoA)
             	igSoA->ae[ij]  = 0.0;
             }
           }  
-        
+       
     // y-boundary modification : zero flux boundary
     #pragma acc parallel loop collapse(1) present(igSoA[0:1], igSoA->an[0:nxy], igSoA->as[0:nxy], igSoA->ap[0:nxy])
         for (int i = 1; i < nx-1; ++i) {
@@ -936,16 +935,28 @@ void coefsc(struct SoA *igSoA)
             igSoA->as[ij1] = 0.0;           
             
         }
-
+*/
         if (nobs > 0) {
         for (int iobs = 0; iobs<nobs; ++iobs){
           for(int i = igSoA->isobs[iobs];i<=igSoA->ieobs[iobs]; ++i){
           for (int j = igSoA->jsobs[iobs];j<=igSoA->jeobs[iobs]; ++j){
             int ij  = j*nx + i;
+/*
            igSoA->ae[ij-1]  = 0.0;
            igSoA->aw[ij+1]  = 0.0;
            igSoA->an[ij-nx] = 0.0;
            igSoA->as[ij+nx] = 0.0;
+*/
+            double add = amusc * (igSoA->areax[ij] / igSoA->dx);
+            
+            igSoA->ae[ij-1]  += add;  igSoA->ap[ij-1]  += add;
+            igSoA->aw[ij+1]  += add;  igSoA->ap[ij+1] += add;
+            
+            add = amusc * (igSoA->areay[ij] / igSoA->dy);
+            
+            igSoA->an[ij-nx]  += add;  igSoA->ap[ij-nx]  += add;
+            igSoA->as[ij+nx]  += add;  igSoA->ap[ij+nx]  += add;
+      
           }
           } 
         }
@@ -1196,6 +1207,24 @@ void pbound(struct SoA *igSoA)
               igSoA->v[ij1+nx] = igSoA->v[ij+nx];
             }
          }
+}
+void outflow(struct SoA *igSoA)
+{
+    int nx = igSoA->npx, ny = igSoA->npy;
+    int nxy = nx * ny;
+
+   
+ if (ibc_xp == 4) {
+  #pragma acc parallel loop present(igSoA[0:1], \
+        igSoA->u[0:nxy], igSoA->v[0:nxy], igSoA->p[0:nxy])
+        for (int j = 0; j < ny; ++j) { 
+             int ij  = j*nx + nx-1 ;
+	    igSoA->u[ij-1] = igSoA->u[ij-2];
+	    igSoA->v[ij]   = igSoA->v[ij-1];
+	    igSoA->p[ij]   = igSoA->p[ij-1];   
+	    igSoA->sc[ij]  = igSoA->sc[ij-1];         
+            }
+         }        
 }
 /* -------------------------jacobi-------------------------- */
 
@@ -2084,6 +2113,11 @@ void write_tecplot_2d_cc(const char *fname, const struct SoA *s, int iter,
     fclose(fp);
 }
 
+/* -------------------- paraiew writer (host) -------------------- */
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+
 void write_vtk_2d_cc(const char *fname, const struct SoA *s, int iter)
 {
     // 1. Determine active simulation grid size
@@ -2227,145 +2261,6 @@ void write_vtk_2d_cc(const char *fname, const struct SoA *s, int iter)
     }
 }
 
-void write_vtk_2d_cc_square(const char *fname, const struct SoA *s, int iter)
-{
-    // 1. Determine active simulation grid size
-    int nx = s->npx;
-    int ny = s->npy;
-    int I = nx - 2; // Active interior cells along X
-    int J = ny - 2; // Active interior cells along Y
-
-    // Define square target grid dimensions (using TARGET_J for a square aspect ratio)
-    const int TARGET_SZ = 640; 
-    const int TARGET_N = TARGET_SZ * TARGET_SZ;
-
-    // Define X-range sub-domain from ny to 2*ny
-    int x_start = ny;
-    int x_end = 2 * ny;
-    int x_span = x_end - x_start;
-
-    // Determine spatial scaling ratio for the square sub-domain
-    double stride_x = (double)x_span / (double)TARGET_SZ;
-    double stride_y = (double)J / (double)TARGET_SZ;
-
-    double target_dx = s->dx * stride_x;
-    double target_dy = s->dy * stride_y;
-
-    double sum_vx = 0.0, sum_mag = 0.0;
-
-    FILE *fp = fopen(fname, "w");
-    if (!fp) {
-        perror("fopen");
-        return;
-    }
-
-    // 2. VTK Header setup for square grid
-    fprintf(fp, "# vtk DataFile Version 3.0\n");
-    fprintf(fp, "2D SQUARE output iter %d\n", iter);
-    fprintf(fp, "ASCII\n");
-    fprintf(fp, "DATASET STRUCTURED_GRID\n");
-    fprintf(fp, "DIMENSIONS %d %d 1\n", TARGET_SZ, TARGET_SZ);
-    fprintf(fp, "POINTS %d float\n", TARGET_N);
-
-    // Write Coordinates for square grid
-    for (int tj = 1; tj <= TARGET_SZ; ++tj) {
-        for (int ti = 1; ti <= TARGET_SZ; ++ti) {
-            double x = (ti - 0.5) * target_dx;
-            double y = (tj - 0.5) * target_dy;
-            fprintf(fp, "%f %f 0.0\n", x, y);
-        }
-    }
-
-    fprintf(fp, "\nPOINT_DATA %d\n", TARGET_N);
-
-    // 3. Velocity Vectors (Mapped to square target grid with X offset from ny to 2*ny)
-    fprintf(fp, "VECTORS Velocity float\n");
-    for (int tj = 1; tj <= TARGET_SZ; ++tj) {
-        int j = 1 + (int)((tj - 0.5) * stride_y);
-        if (j > J) j = J;
-
-        for (int ti = 1; ti <= TARGET_SZ; ++ti) {
-            int i = x_start + (int)((ti - 0.5) * stride_x);
-            if (i > I) i = I;
-
-            int ij    = j * nx + i;
-            int ijm_x = ij - 1;
-            int ijm_y = ij - nx;
-
-            double ucc = 0.5 * (s->u[ij] + s->u[ijm_x]);
-            double vcc = 0.5 * (s->v[ij] + s->v[ijm_y]);
-
-            sum_vx += ucc;
-            sum_mag += sqrt(ucc * ucc + vcc * vcc);
-
-            fprintf(fp, "%f %f 0.0\n", ucc, vcc);
-        }
-    }
-
-    // 4. Pressure
-    fprintf(fp, "\nSCALARS P float 1\n");
-    fprintf(fp, "LOOKUP_TABLE default\n");
-    for (int tj = 1; tj <= TARGET_SZ; ++tj) {
-        int j = 1 + (int)((tj - 0.5) * stride_y);
-        if (j > J) j = J;
-
-        for (int ti = 1; ti <= TARGET_SZ; ++ti) {
-            int i = x_start + (int)((ti - 0.5) * stride_x);
-            if (i > I) i = I;
-
-            int ij = j * nx + i;
-            fprintf(fp, "%f\n", s->p[ij]);
-        }
-    }
-
-    // 5. Scalar
-    fprintf(fp, "\nSCALARS SC float 1\n");
-    fprintf(fp, "LOOKUP_TABLE default\n");
-    for (int tj = 1; tj <= TARGET_SZ; ++tj) {
-        int j = 1 + (int)((tj - 0.5) * stride_y);
-        if (j > J) j = J;
-
-        for (int ti = 1; ti <= TARGET_SZ; ++ti) {
-            int i = x_start + (int)((ti - 0.5) * stride_x);
-            if (i > I) i = I;
-
-            int ij = j * nx + i;
-            fprintf(fp, "%f\n", s->sc[ij]);
-        }
-    }
-
-    // 6. Obstacle Scalar
-    fprintf(fp, "\nSCALARS OBS float 1\n");
-    fprintf(fp, "LOOKUP_TABLE default\n");
-    for (int tj = 1; tj <= TARGET_SZ; ++tj) {
-        int j = 1 + (int)((tj - 0.5) * stride_y);
-        if (j > J) j = J;
-
-        for (int ti = 1; ti <= TARGET_SZ; ++ti) {
-            int i = x_start + (int)((ti - 0.5) * stride_x);
-            if (i > I) i = I;
-
-            int flag = 0;
-            if (nobs > 0) {
-                for (int iobs = 0; iobs < nobs; ++iobs) {
-                    if (i >= s->isobs[iobs] && i <= s->ieobs[iobs] &&
-                        j >= s->jsobs[iobs] && j <= s->jeobs[iobs]) {
-                        flag = 1;
-                        break;
-                    }
-                }
-            }
-            fprintf(fp, "%f\n", flag ? 1.0 : 0.0);
-        }
-    }
-
-    fclose(fp);
-
-    printf("Square domain - Average velocity magnitude at iter %d: %e\n", iter, sum_mag / TARGET_N);
-    printf("Square domain - Average x-velocity at iter %d: %e\n", iter, sum_vx / TARGET_N);
-}
-
-
 /*
 void write_vtk_2d_cc(const char *fname, const struct SoA *s, int iter)
 {
@@ -2507,6 +2402,146 @@ void read_obstacle_data(const char *filename) {
 	*/
     fclose(fptr);
 }
+
+
+void write_vtk_2d_cc_square(const char *fname, const struct SoA *s, int iter)
+{
+    // 1. Determine active simulation grid size
+    int nx = s->npx;
+    int ny = s->npy;
+    int I = nx - 2; // Active interior cells along X
+    int J = ny - 2; // Active interior cells along Y
+
+    // Define square target grid dimensions (using TARGET_J for a square aspect ratio)
+    const int TARGET_SZ = 640; 
+    const int TARGET_N = TARGET_SZ * TARGET_SZ;
+
+    // Define X-range sub-domain from ny to 2*ny
+    int x_start = ny;
+    int x_end = 2 * ny;
+    int x_span = x_end - x_start;
+
+    // Determine spatial scaling ratio for the square sub-domain
+    double stride_x = (double)x_span / (double)TARGET_SZ;
+    double stride_y = (double)J / (double)TARGET_SZ;
+
+    double target_dx = s->dx * stride_x;
+    double target_dy = s->dy * stride_y;
+
+    double sum_vx = 0.0, sum_mag = 0.0;
+
+    FILE *fp = fopen(fname, "w");
+    if (!fp) {
+        perror("fopen");
+        return;
+    }
+
+    // 2. VTK Header setup for square grid
+    fprintf(fp, "# vtk DataFile Version 3.0\n");
+    fprintf(fp, "2D SQUARE output iter %d\n", iter);
+    fprintf(fp, "ASCII\n");
+    fprintf(fp, "DATASET STRUCTURED_GRID\n");
+    fprintf(fp, "DIMENSIONS %d %d 1\n", TARGET_SZ, TARGET_SZ);
+    fprintf(fp, "POINTS %d float\n", TARGET_N);
+
+    // Write Coordinates for square grid
+    for (int tj = 1; tj <= TARGET_SZ; ++tj) {
+        for (int ti = 1; ti <= TARGET_SZ; ++ti) {
+            double x = (ti - 0.5) * target_dx;
+            double y = (tj - 0.5) * target_dy;
+            fprintf(fp, "%f %f 0.0\n", x, y);
+        }
+    }
+
+    fprintf(fp, "\nPOINT_DATA %d\n", TARGET_N);
+
+    // 3. Velocity Vectors (Mapped to square target grid with X offset from ny to 2*ny)
+    fprintf(fp, "VECTORS Velocity float\n");
+    for (int tj = 1; tj <= TARGET_SZ; ++tj) {
+        int j = 1 + (int)((tj - 0.5) * stride_y);
+        if (j > J) j = J;
+
+        for (int ti = 1; ti <= TARGET_SZ; ++ti) {
+            int i = x_start + (int)((ti - 0.5) * stride_x);
+            if (i > I) i = I;
+
+            int ij    = j * nx + i;
+            int ijm_x = ij - 1;
+            int ijm_y = ij - nx;
+
+            double ucc = 0.5 * (s->u[ij] + s->u[ijm_x]);
+            double vcc = 0.5 * (s->v[ij] + s->v[ijm_y]);
+
+            sum_vx += ucc;
+            sum_mag += sqrt(ucc * ucc + vcc * vcc);
+
+            fprintf(fp, "%f %f 0.0\n", ucc, vcc);
+        }
+    }
+
+    // 4. Pressure
+    fprintf(fp, "\nSCALARS P float 1\n");
+    fprintf(fp, "LOOKUP_TABLE default\n");
+    for (int tj = 1; tj <= TARGET_SZ; ++tj) {
+        int j = 1 + (int)((tj - 0.5) * stride_y);
+        if (j > J) j = J;
+
+        for (int ti = 1; ti <= TARGET_SZ; ++ti) {
+            int i = x_start + (int)((ti - 0.5) * stride_x);
+            if (i > I) i = I;
+
+            int ij = j * nx + i;
+            fprintf(fp, "%f\n", s->p[ij]);
+        }
+    }
+
+    // 5. Scalar
+    fprintf(fp, "\nSCALARS SC float 1\n");
+    fprintf(fp, "LOOKUP_TABLE default\n");
+    for (int tj = 1; tj <= TARGET_SZ; ++tj) {
+        int j = 1 + (int)((tj - 0.5) * stride_y);
+        if (j > J) j = J;
+
+        for (int ti = 1; ti <= TARGET_SZ; ++ti) {
+            int i = x_start + (int)((ti - 0.5) * stride_x);
+            if (i > I) i = I;
+
+            int ij = j * nx + i;
+            fprintf(fp, "%f\n", s->sc[ij]);
+        }
+    }
+
+    // 6. Obstacle Scalar
+    fprintf(fp, "\nSCALARS OBS float 1\n");
+    fprintf(fp, "LOOKUP_TABLE default\n");
+    for (int tj = 1; tj <= TARGET_SZ; ++tj) {
+        int j = 1 + (int)((tj - 0.5) * stride_y);
+        if (j > J) j = J;
+
+        for (int ti = 1; ti <= TARGET_SZ; ++ti) {
+            int i = x_start + (int)((ti - 0.5) * stride_x);
+            if (i > I) i = I;
+
+            int flag = 0;
+            if (nobs > 0) {
+                for (int iobs = 0; iobs < nobs; ++iobs) {
+                    if (i >= s->isobs[iobs] && i <= s->ieobs[iobs] &&
+                        j >= s->jsobs[iobs] && j <= s->jeobs[iobs]) {
+                        flag = 1;
+                        break;
+                    }
+                }
+            }
+            fprintf(fp, "%f\n", flag ? 1.0 : 0.0);
+        }
+    }
+
+    fclose(fp);
+
+    printf("Square domain - Average velocity magnitude at iter %d: %e\n", iter, sum_mag / TARGET_N);
+    printf("Square domain - Average x-velocity at iter %d: %e\n", iter, sum_vx / TARGET_N);
+}
+
 
 
 ////////////////////////////////////////////////////////////////////
