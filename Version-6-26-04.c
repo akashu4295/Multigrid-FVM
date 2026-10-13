@@ -687,8 +687,8 @@ void fluxes(struct SoA *igSoA){
         for (int j = 0; j < ny-1; ++j) {
             for (int i = 0; i < nx-1; ++i) {
                 int ij = j * nx + i;
-                igSoA->cx[ij] = igSoA->u[ij] * igSoA->areax[ij];
-                igSoA->cy[ij] = igSoA->v[ij] * igSoA->areay[ij];
+                igSoA->cx[ij] = 0.5 * igSoA->u[ij] * igSoA->areax[ij];
+                igSoA->cy[ij] = 0.5 * igSoA->v[ij] * igSoA->areay[ij];
             }
         }
 }
